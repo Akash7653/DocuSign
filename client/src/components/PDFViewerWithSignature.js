@@ -1,106 +1,92 @@
 // client/src/components/PDFViewerWithSignature.js
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
-import 'react-pdf/dist/esm/Page/AnnotationLayer.css'; // Required for PDF links/annotations
-import 'react-pdf/dist/esm/Page/TextLayer.css';     // Required for selectable text
-import { FaEraser, FaFont, FaImage, FaSave, FaDownload, FaTimes, FaPlus, FaMinus, FaArrowRight, FaArrowLeft, FaSignature, FaPaintBrush } from 'react-icons/fa';
+import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
+import 'react-pdf/dist/esm/Page/TextLayer.css';
+import { FaEraser, FaImage, FaSave, FaDownload, FaTimes, FaPlus, FaMinus, FaArrowRight, FaArrowLeft, FaSignature } from 'react-icons/fa';
 
 // Configure PDF.js worker source globally
-pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@3.6.172/build/pdf.worker.min.js`;
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js`;
 
 const PDFViewerWithSignature = ({
   fileUrl,
   onPlaceSignature,
   onDeleteSignature,
   onFinalize,
-  signatures, // Array of existing signatures for the current document, fetched from backend
+  signatures,
 }) => {
-  const viewerRef = useRef(); // Ref for the main PDF viewer container (for mouse events, e.g., mouse leave)
-  const pdfPageContainerRef = useRef(); // Ref for the div that wraps the PDF.js <canvas> element
+  const viewerRef = useRef();
+  const pdfPageContainerRef = useRef();
+  const canvasRef = useRef();
+  const isDrawing = useRef(false);
 
-  const [numPages, setNumPages] = useState(null); // Total number of pages in the PDF
-  const [currentPage, setCurrentPage] = useState(1); // Currently displayed page number (1-indexed)
-  const [pageInput, setPageInput] = useState(1); // State for the page number input field
-  const [pdfRenderedWidth, setPdfRenderedWidth] = useState(0); // Actual rendered width of the PDF page at current scale
-  const [pdfRenderedHeight, setPdfRenderedHeight] = useState(0); // Actual rendered height of the PDF page at current scale
-  const [scale, setScale] = useState(0.7); // Zoom level for the PDF (1.0 = 100%)
+  const [numPages, setNumPages] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageInput, setPageInput] = useState(1);
+  const [pdfRenderedWidth, setPdfRenderedWidth] = useState(0);
+  const [pdfRenderedHeight, setPdfRenderedHeight] = useState(0);
+  const [scale, setScale] = useState(0.7);
 
-  // State for the *new* signature being created/dragged before it's saved to the backend
-  const [signatureType, setSignatureType] = useState('Typed'); // Current signature creation mode: 'Typed', 'Drawn', 'Image'
-  const [typedText, setTypedText] = useState(''); // Text for 'Typed' signatures
-  const [font, setFont] = useState('Arial'); // Font for 'Typed' signatures
-  const [fontSize, setFontSize] = useState(24); // Font size for 'Typed' signatures
-  const [color, setColor] = useState('#000000'); // Color for 'Typed' and 'Drawn' signatures
-  const [drawImage, setDrawImage] = useState(null); // Base64 URL of the drawn signature (from canvas)
-  const [uploadedImage, setUploadedImage] = useState(null); // Base64 URL of the uploaded image
-  const [imageSize, setImageSize] = useState(100); // Desired width for 'Image' signatures
+  // Signature state
+  const [signatureType, setSignatureType] = useState('Typed');
+  const [typedText, setTypedText] = useState('');
+  const [font, setFont] = useState('Arial');
+  const [fontSize, setFontSize] = useState(24);
+  const [color, setColor] = useState('#000000');
+  const [, setDrawImage] = useState(null); // Fixed state declaration
+  const [uploadedImage, setUploadedImage] = useState(null);
+  const [imageSize, setImageSize] = useState(100);
 
-  const [newSignatureContent, setNewSignatureContent] = useState(null); // Unified content object for the new signature preview
-  const [newSignaturePosition, setNewSignaturePosition] = useState({ x: 0, y: 0 }); // Pixel position for the new signature preview (relative to PDF page)
-  const [isDraggingNewSignature, setIsDraggingNewSignature] = useState(false); // Flag if the new signature preview is being dragged
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 }); // Mouse position offset from preview top-left for smooth dragging
+  const [newSignatureContent, setNewSignatureContent] = useState(null);
+  const [newSignaturePosition, setNewSignaturePosition] = useState({ x: 0, y: 0 });
+  const [isDraggingNewSignature, setIsDraggingNewSignature] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
-  const canvasRef = useRef(); // Ref for the drawing canvas element
-  const isDrawing = useRef(false); // To track drawing state on the canvas
-
-  // Effect to synchronize the page input field with the current page state
+  // Effect hooks
   useEffect(() => {
     setPageInput(currentPage);
   }, [currentPage]);
 
-  // Effect to reset drawing canvas and new signature content when signature type changes
   useEffect(() => {
     if (signatureType === 'Drawn' && canvasRef.current) {
       const ctx = canvasRef.current.getContext('2d');
       ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-      setDrawImage(null); // Clear drawn image data
+      setDrawImage(null);
     }
-    // Clear the new signature preview and related input states whenever signatureType changes
     setNewSignatureContent(null);
     setTypedText('');
     setUploadedImage(null);
-  }, [signatureType]);
+  }, [signatureType, setDrawImage]); // Added setDrawImage to dependencies
 
-  // Effect to set initial position and content for the new signature preview once PDF dimensions are known
   useEffect(() => {
     if (pdfRenderedWidth && pdfRenderedHeight) {
-      // Place the preview roughly in the center of the PDF initially
       setNewSignaturePosition({
-        x: (pdfRenderedWidth / 2) - 50, // Roughly center, adjusting for a typical 100px wide element
-        y: (pdfRenderedHeight / 2) - 50, // Roughly center
+        x: (pdfRenderedWidth / 2) - 50,
+        y: (pdfRenderedHeight / 2) - 50,
       });
 
-      // If initial content exists for typed/image, immediately create the preview
       if (signatureType === 'Typed' && typedText.trim().length > 0) {
         setNewSignatureContent({ text: typedText, font, color, fontSize });
       } else if (signatureType === 'Image' && uploadedImage) {
         setNewSignatureContent({ image: uploadedImage, size: imageSize });
       }
-      // Drawn content is only set after the user actually draws something
     }
-  }, [pdfRenderedWidth, pdfRenderedHeight, signatureType]); // Depend on rendered PDF dimensions and signatureType
+  }, [pdfRenderedWidth, pdfRenderedHeight, signatureType, typedText, font, color, fontSize, uploadedImage, imageSize]); // Added all dependencies
 
-  // Callback for successful PDF document load by react-pdf
+  // Document and page handlers
   const onDocumentLoadSuccess = useCallback(({ numPages: totalPages }) => {
     setNumPages(totalPages);
   }, []);
 
-  // Callback for successful PDF page render by react-pdf
   const onPageRenderSuccess = useCallback(({ width, height }) => {
-    // These are the actual pixel dimensions of the rendered PDF page on screen
     setPdfRenderedWidth(width);
     setPdfRenderedHeight(height);
   }, []);
 
-  // --- Signature Creation/Placement Logic ---
-
-  /**
-   * Handles placing the new signature. This function normalizes the coordinates
-   * and calls the `onPlaceSignature` prop (which sends data to the backend).
-   */
+  // Signature placement
   const handlePlaceNewSignature = () => {
     if (!newSignatureContent) {
-      alert('Please create content for your signature (type text, draw, or upload image) before placing.');
+      alert('Please create content for your signature before placing.');
       return;
     }
     if (!pdfRenderedWidth || !pdfRenderedHeight) {
@@ -108,14 +94,10 @@ const PDFViewerWithSignature = ({
       return;
     }
 
-    // Normalize coordinates (0 to 1) based on rendered PDF page dimensions
-    // This makes the signature position independent of zoom level and original PDF size.
-    // Frontend (0,0) is top-left.
-    const previewHeight = 40; // approximate or get actual height of the preview
-const normalizedX = newSignaturePosition.x / pdfRenderedWidth;
-const normalizedY = (newSignaturePosition.y + previewHeight) / pdfRenderedHeight;
+    const previewHeight = 40;
+    const normalizedX = newSignaturePosition.x / pdfRenderedWidth;
+    const normalizedY = (newSignaturePosition.y + previewHeight) / pdfRenderedHeight;
 
-    // Call the parent component's prop to send the signature data to the backend
     onPlaceSignature({
       x: normalizedX,
       y: normalizedY,
@@ -124,242 +106,171 @@ const normalizedY = (newSignaturePosition.y + previewHeight) / pdfRenderedHeight
       content: newSignatureContent,
     });
 
-    // Clear the new signature preview and related input fields after successful placement
     setNewSignatureContent(null);
     setTypedText('');
     setDrawImage(null);
     setUploadedImage(null);
-    if (canvasRef.current) { // Clear the drawing canvas if it was used
+    if (canvasRef.current) {
       const ctx = canvasRef.current.getContext('2d');
       ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
     }
   };
 
-  // --- Dragging Logic for the *New* Signature Preview ---
-
-  /**
-   * Initiates the drag operation for the new signature preview.
-   * @param {React.MouseEvent} e - The mouse event.
-   */
+  // Dragging handlers
   const handleStartDragNewSignature = (e) => {
-    // Only start dragging if the direct target is the preview div itself, not its children (e.g., the delete button)
     if (e.target.classList.contains('new-signature-preview')) {
-        // Prevent default browser drag behavior
-        e.preventDefault();
-        // Get the bounding rectangle of the PDF page container for coordinate calculation
-        const pdfPageRect = pdfPageContainerRef.current.getBoundingClientRect();
-        // Calculate the offset from the mouse click to the top-left corner of the preview
-        setDragOffset({
-            x: e.clientX - pdfPageRect.left - newSignaturePosition.x,
-            y: e.clientY - pdfPageRect.top - newSignaturePosition.y,
-        });
-        setIsDraggingNewSignature(true); // Set dragging flag to true
+      e.preventDefault();
+      const pdfPageRect = pdfPageContainerRef.current.getBoundingClientRect();
+      setDragOffset({
+        x: e.clientX - pdfPageRect.left - newSignaturePosition.x,
+        y: e.clientY - pdfPageRect.top - newSignaturePosition.y,
+      });
+      setIsDraggingNewSignature(true);
     }
   };
 
-  /**
-   * Updates the position of the new signature preview during drag.
-   * @param {React.MouseEvent} e - The mouse event.
-   */
   const handleDraggingNewSignature = (e) => {
     if (!isDraggingNewSignature || !pdfPageContainerRef.current) return;
 
     const pdfPageRect = pdfPageContainerRef.current.getBoundingClientRect();
-    // Calculate new position based on current mouse position and initial offset
     let newX = e.clientX - pdfPageRect.left - dragOffset.x;
     let newY = e.clientY - pdfPageRect.top - dragOffset.y;
 
-    // Get current dimensions of the signature preview element to apply boundary checks
     const previewElement = viewerRef.current.querySelector('.new-signature-preview');
     const previewWidth = previewElement ? previewElement.offsetWidth : 0;
     const previewHeight = previewElement ? previewElement.offsetHeight : 0;
 
-    // Clamp coordinates to stay within the bounds of the rendered PDF page
     newX = Math.max(0, Math.min(newX, pdfRenderedWidth - previewWidth));
     newY = Math.max(0, Math.min(newY, pdfRenderedHeight - previewHeight));
 
-    setNewSignaturePosition({ x: newX, y: newY }); // Update the state, re-rendering the preview
+    setNewSignaturePosition({ x: newX, y: newY });
   };
 
-  /**
-   * Ends the drag operation for the new signature preview.
-   */
   const handleMouseUpNewSignature = () => {
     setIsDraggingNewSignature(false);
   };
 
-  /**
-   * Handles mouse leaving the main viewer area during a drag operation.
-   * This is a safeguard to stop dragging if the mouse goes off the PDF.
-   */
   const handleMouseLeaveViewer = () => {
     if (isDraggingNewSignature) {
       setIsDraggingNewSignature(false);
     }
   };
 
-  // --- Drawing Functions for 'Drawn' Signature Type ---
-
-  /**
-   * Starts drawing on the canvas.
-   * @param {React.MouseEvent|React.TouchEvent} e - The mouse or touch event.
-   */
+  // Drawing handlers
   const handleMouseDownDraw = (e) => {
     isDrawing.current = true;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    ctx.strokeStyle = color; // Set drawing color
-    ctx.lineWidth = 2;       // Set line thickness
-    ctx.lineCap = 'round';   // Make line ends rounded for smoother appearance
-    ctx.beginPath();         // Start a new path
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
 
-    // Get coordinates relative to the canvas
     const offsetX = e.nativeEvent.offsetX || (e.touches ? e.touches[0].clientX - canvas.getBoundingClientRect().left : 0);
     const offsetY = e.nativeEvent.offsetY || (e.touches ? e.touches[0].clientY - canvas.getBoundingClientRect().top : 0);
-    ctx.moveTo(offsetX, offsetY); // Start drawing at mouse/touch position
+    ctx.moveTo(offsetX, offsetY);
   };
 
-  /**
-   * Continues drawing on the canvas.
-   * @param {React.MouseEvent|React.TouchEvent} e - The mouse or touch event.
-   */
   const handleMouseMoveDraw = (e) => {
     if (!isDrawing.current) return;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    // Get coordinates relative to the canvas
     const offsetX = e.nativeEvent.offsetX || (e.touches ? e.touches[0].clientX - canvas.getBoundingClientRect().left : 0);
     const offsetY = e.nativeEvent.offsetY || (e.touches ? e.touches[0].clientY - canvas.getBoundingClientRect().top : 0);
     ctx.lineTo(offsetX, offsetY);
-    ctx.stroke(); // Draw line segment
+    ctx.stroke();
   };
 
-  /**
-   * Ends drawing on the canvas and saves the drawn image.
-   */
   const handleMouseUpDraw = () => {
     isDrawing.current = false;
-    setDrawImage(canvasRef.current.toDataURL()); // Save the drawn content as base64 image data URL
-    setNewSignatureContent({ image: canvasRef.current.toDataURL() }); // Update the new signature preview content
+    const imageData = canvasRef.current.toDataURL();
+    setDrawImage(imageData);
+    setNewSignatureContent({ image: imageData });
   };
 
-  /**
-   * Handles mouse leaving the drawing canvas while drawing.
-   * Finalizes the drawing in this scenario.
-   */
   const handleMouseLeaveDraw = () => {
     if (isDrawing.current) {
-      handleMouseUpDraw(); // Finalize drawing if mouse leaves the canvas area
+      handleMouseUpDraw();
     }
   };
 
-  /**
-   * Clears the drawing canvas and resets related states.
-   */
   const handleClearDrawing = () => {
     const ctx = canvasRef.current.getContext('2d');
-    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height); // Clear the canvas content
-    setDrawImage(null); // Clear stored drawn image data
-    setNewSignatureContent(null); // Clear the new signature preview content
+    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    setDrawImage(null);
+    setNewSignatureContent(null);
   };
 
-  // --- Input Change Handlers for Signature Content ---
-
-  /**
-   * Handles changes to the typed signature text input.
-   * Updates the text content and the new signature preview.
-   * @param {React.ChangeEvent<HTMLInputElement>} e - The input change event.
-   */
+  // Input handlers
   const handleTypedTextChange = (e) => {
     const text = e.target.value;
     setTypedText(text);
     if (text.trim().length > 0) {
       setNewSignatureContent({ text, font, color, fontSize });
     } else {
-      setNewSignatureContent(null); // Clear preview if text is empty
+      setNewSignatureContent(null);
     }
   };
 
-  /**
-   * Updates the new typed signature content whenever font, size, or color changes.
-   */
   useEffect(() => {
     if (signatureType === 'Typed' && typedText.trim().length > 0) {
       setNewSignatureContent({ text: typedText, font, color, fontSize });
     }
   }, [font, fontSize, color, typedText, signatureType]);
 
-  /**
-   * Handles file selection for image signatures.
-   * Reads the selected image as a base64 data URL.
-   * @param {React.ChangeEvent<HTMLInputElement>} e - The file input change event.
-   */
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setUploadedImage(reader.result); // Store the base64 string
-        setNewSignatureContent({ image: reader.result, size: imageSize }); // Update preview content
+        setUploadedImage(reader.result);
+        setNewSignatureContent({ image: reader.result, size: imageSize });
       };
-      reader.readAsDataURL(file); // Read file as base64 data URL
+      reader.readAsDataURL(file);
     } else {
       setUploadedImage(null);
-      setNewSignatureContent(null); // Clear preview if no file selected
+      setNewSignatureContent(null);
     }
   };
 
-  /**
-   * Updates the new image signature content when the image size slider changes.
-   */
   useEffect(() => {
     if (signatureType === 'Image' && uploadedImage) {
       setNewSignatureContent({ image: uploadedImage, size: imageSize });
     }
   }, [imageSize, uploadedImage, signatureType]);
 
-  // --- Render Functions for Signatures ---
-
-  /**
-   * Renders the preview of the NEW signature currently being created and dragged.
-   * This preview is temporary and not yet saved to the database.
-   * It moves with `newSignaturePosition`.
-   */
+  // Render functions
   const renderNewSignaturePreview = () => {
-    // Only render if there's content and PDF dimensions are known
     if (!newSignatureContent || !pdfRenderedWidth || !pdfRenderedHeight) return null;
 
     const baseStyle = {
       position: 'absolute',
-      // Position using pixel coordinates relative to the PDF container
       top: newSignaturePosition.y,
       left: newSignaturePosition.x,
-      cursor: isDraggingNewSignature ? 'grabbing' : 'grab', // Cursor feedback for dragging
-      zIndex: 10, // Higher z-index to be on top of placed signatures and PDF content
-      border: '2px dashed #007bff', // Visual indicator for active preview
-      boxShadow: '0 0 10px rgba(0, 123, 255, 0.5)', // Blue glow
+      cursor: isDraggingNewSignature ? 'grabbing' : 'grab',
+      zIndex: 10,
+      border: '2px dashed #007bff',
+      boxShadow: '0 0 10px rgba(0, 123, 255, 0.5)',
       padding: '5px',
-      backgroundColor: 'rgba(255, 255, 255, 0.9)', // Slightly transparent background
+      backgroundColor: 'rgba(255, 255, 255, 0.9)',
       borderRadius: '8px',
-      userSelect: 'none', // Prevent text selection during drag
+      userSelect: 'none',
     };
 
     let contentToRender;
     if (newSignatureContent.text) {
-      // Render typed text
       contentToRender = (
         <div style={{
           fontFamily: newSignatureContent.font,
           fontSize: `${newSignatureContent.fontSize}px`,
           color: newSignatureContent.color,
           fontWeight: 'bold',
-          whiteSpace: 'nowrap', // Keep text on one line
+          whiteSpace: 'nowrap',
         }}>
           {newSignatureContent.text}
         </div>
       );
     } else if (newSignatureContent.image) {
-      // Render drawn or uploaded image
       contentToRender = (
         <img
           src={newSignatureContent.image}
@@ -368,7 +279,7 @@ const normalizedY = (newSignaturePosition.y + previewHeight) / pdfRenderedHeight
         />
       );
     } else {
-      return null; // Should not happen if newSignatureContent is set correctly
+      return null;
     }
 
     return (
@@ -376,12 +287,12 @@ const normalizedY = (newSignaturePosition.y + previewHeight) / pdfRenderedHeight
         style={baseStyle}
         onMouseDown={handleStartDragNewSignature}
         onTouchStart={handleStartDragNewSignature}
-        className="new-signature-preview" // Class for drag target identification
+        className="new-signature-preview"
       >
         {contentToRender}
         <button
           className="absolute -top-3 -right-3 bg-red-600 text-white rounded-full p-1.5 text-xs hover:bg-red-700 transition-colors shadow-md transform scale-90 hover:scale-100"
-          onClick={(e) => { e.stopPropagation(); setNewSignatureContent(null); }} // Stop propagation to prevent drag
+          onClick={(e) => { e.stopPropagation(); setNewSignatureContent(null); }}
           title="Cancel placement"
         >
           <FaTimes />
@@ -390,19 +301,12 @@ const normalizedY = (newSignaturePosition.y + previewHeight) / pdfRenderedHeight
     );
   };
 
-  /**
-   * Renders already placed signatures fetched from the backend (`signatures` prop).
-   * These signatures are fixed on the page and have a delete button.
-   */
   const renderPlacedSignatures = () => {
-    // Only render if PDF dimensions are known and signatures exist
     if (!pdfRenderedWidth || !pdfRenderedHeight || !signatures) return null;
 
     return signatures
-      .filter(sig => sig.page === currentPage) // Only render signatures for the currently displayed page
+      .filter(sig => sig.page === currentPage)
       .map((sig) => {
-        // Calculate actual pixel positions from normalized coordinates (0-1)
-        // Frontend 'top' is relative to the top of the PDF, so 'y' corresponds directly.
         const pixelX = sig.x * pdfRenderedWidth;
         const pixelY = sig.y * pdfRenderedHeight;
 
@@ -410,8 +314,8 @@ const normalizedY = (newSignaturePosition.y + previewHeight) / pdfRenderedHeight
           position: 'absolute',
           top: pixelY,
           left: pixelX,
-          zIndex: 9, // Below the new signature preview, but above PDF content
-          pointerEvents: 'none', // By default, prevent signatures from blocking PDF interaction
+          zIndex: 9,
+          pointerEvents: 'none',
         };
 
         let contentToRender;
@@ -424,7 +328,7 @@ const normalizedY = (newSignaturePosition.y + previewHeight) / pdfRenderedHeight
               fontWeight: 'bold',
               whiteSpace: 'nowrap',
               userSelect: 'none',
-              pointerEvents: 'auto', // Allow delete button to be clicked
+              pointerEvents: 'auto',
             }}>
               {sig.content.text}
             </div>
@@ -435,16 +339,16 @@ const normalizedY = (newSignaturePosition.y + previewHeight) / pdfRenderedHeight
               src={sig.content.image}
               alt="placed signature"
               style={{
-                width: `${sig.content.size || 100}px`, // Use stored size, default to 100px
+                width: `${sig.content.size || 100}px`,
                 height: 'auto',
                 display: 'block',
                 userSelect: 'none',
-                pointerEvents: 'auto', // Allow delete button to be clicked
+                pointerEvents: 'auto',
               }}
             />
           );
         } else {
-            return null; // Don't render if content is missing or invalid
+          return null;
         }
 
         return (
@@ -452,9 +356,9 @@ const normalizedY = (newSignaturePosition.y + previewHeight) / pdfRenderedHeight
             {contentToRender}
             <button
               className="absolute -top-3 -right-3 bg-red-600 text-white rounded-full p-1.5 text-xs hover:bg-red-700 transition-colors shadow-md transform scale-90 hover:scale-100"
-              onClick={() => onDeleteSignature(sig._id)} // Pass signature ID for deletion
+              onClick={() => onDeleteSignature(sig._id)}
               title="Delete signature"
-              style={{ pointerEvents: 'auto' }} // Ensure button is clickable
+              style={{ pointerEvents: 'auto' }}
             >
               <FaTimes />
             </button>
@@ -469,7 +373,7 @@ const normalizedY = (newSignaturePosition.y + previewHeight) / pdfRenderedHeight
       className="relative border border-gray-300 dark:border-gray-600 rounded-lg p-6 bg-gray-50 dark:bg-gray-800 shadow-xl w-full flex flex-col items-center font-inter transition-colors duration-300"
       onMouseMove={handleDraggingNewSignature}
       onMouseUp={handleMouseUpNewSignature}
-      onMouseLeave={handleMouseLeaveViewer} // Catch mouse leaving during drag
+      onMouseLeave={handleMouseLeaveViewer}
       onTouchMove={handleDraggingNewSignature}
       onTouchEnd={handleMouseUpNewSignature}
       onTouchCancel={handleMouseLeaveViewer}
@@ -534,8 +438,8 @@ const normalizedY = (newSignaturePosition.y + previewHeight) / pdfRenderedHeight
           <div className="flex flex-col sm:flex-row items-center gap-4 w-full">
             <canvas
               ref={canvasRef}
-              width={300} // Fixed canvas width
-              height={100} // Fixed canvas height
+              width={300}
+              height={100}
               className="border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 cursor-crosshair shadow-inner flex-shrink-0"
               onMouseDown={handleMouseDownDraw}
               onMouseMove={handleMouseMoveDraw}
@@ -595,7 +499,7 @@ const normalizedY = (newSignaturePosition.y + previewHeight) / pdfRenderedHeight
         <button
           onClick={handlePlaceNewSignature}
           className="bg-gradient-to-r from-green-500 to-teal-600 text-white font-bold px-6 py-2 rounded-lg shadow-lg hover:from-green-600 hover:to-teal-700 transition-all duration-300 transform hover:scale-105 flex items-center gap-2"
-          disabled={!newSignatureContent} // Disable if no content to place
+          disabled={!newSignatureContent}
         >
           <FaSave /> Place Signature
         </button>
@@ -620,7 +524,7 @@ const normalizedY = (newSignaturePosition.y + previewHeight) / pdfRenderedHeight
             if (e.key === 'Enter') {
               const pg = parseInt(pageInput);
               if (pg >= 1 && pg <= numPages) setCurrentPage(pg);
-              e.target.blur(); // Remove focus after enter
+              e.target.blur();
             }
           }}
           className="w-20 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 p-2 rounded-md text-center focus:ring-blue-500 focus:border-blue-500 shadow-sm"
@@ -656,35 +560,31 @@ const normalizedY = (newSignaturePosition.y + previewHeight) / pdfRenderedHeight
         style={{
           width: pdfRenderedWidth ? `${pdfRenderedWidth}px` : '100%',
           height: pdfRenderedHeight ? `${pdfRenderedHeight}px` : 'auto',
-          maxWidth: '100%', // Ensure it fits container
-          maxHeight: '80vh', // Limit height for better viewing experience
+          maxWidth: '100%',
+          maxHeight: '80vh',
           display: 'flex',
           justifyContent: 'center',
           alignItems: 'center',
-          // Important for consistent scaling across devices
-          touchAction: 'none', // Prevents default touch actions like pan/zoom for custom drag
+          touchAction: 'none',
         }}
-        ref={pdfPageContainerRef} // This ref wraps the PDF.js canvas
+        ref={pdfPageContainerRef}
       >
         <Document
           file={fileUrl}
           onLoadSuccess={onDocumentLoadSuccess}
-          className="flex justify-center items-center" // Center the PDF within its container
+          className="flex justify-center items-center"
         >
           <Page
             pageNumber={currentPage}
             scale={scale}
             onRenderSuccess={onPageRenderSuccess}
-            renderAnnotationLayer={true} // Renders links/annotations from PDF
-            renderTextLayer={true} // Renders selectable text layer
+            renderAnnotationLayer={true}
+            renderTextLayer={true}
             className="shadow-xl"
           />
         </Document>
 
-        {/* Render existing signatures */}
         {renderPlacedSignatures()}
-
-        {/* Render the new signature preview being dragged */}
         {renderNewSignaturePreview()}
       </div>
 

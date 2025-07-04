@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import PDFViewerWithSignature from '../components/PDFViewerWithSignature';
@@ -17,15 +17,6 @@ const SignDocumentPage = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const token = localStorage.getItem('token');
 
-  // API configuration
-  const api = axios.create({
-    baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    }
-  });
-
   useEffect(() => {
     if (!token) {
       toast.error('You must be logged in to sign documents.');
@@ -33,18 +24,43 @@ const SignDocumentPage = () => {
       return;
     }
 
+    const api = axios.create({
+      baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const handleApiError = (err) => {
+      console.error('API Error:', err);
+      
+      if (err.response) {
+        if (err.response.status === 401 || err.response.status === 403) {
+          toast.error('Session expired. Please login again.');
+          navigate('/login');
+        } else if (err.response.status === 404) {
+          setError(`Document not found. It may have been deleted.`);
+        } else {
+          setError(err.response.data?.message || `Error: ${err.response.status}`);
+        }
+      } else if (err.request) {
+        setError('Network error: Could not connect to server');
+      } else {
+        setError('An unexpected error occurred');
+      }
+    };
+
     const fetchDocumentAndSignatures = async () => {
       try {
         setLoading(true);
         setError(null);
 
-        // Fetch document and signatures in parallel
         const [docRes, sigRes] = await Promise.all([
           api.get(`/api/docs/${docId}`),
           api.get(`/api/signatures/${docId}`)
         ]);
 
-        // Construct the document URL safely
         const filepath = docRes.data.filepath.startsWith('/') 
           ? docRes.data.filepath 
           : `/${docRes.data.filepath}`;
@@ -69,30 +85,19 @@ const SignDocumentPage = () => {
     }
   }, [docId, token, navigate]);
 
-  const handleApiError = (err) => {
-    console.error('API Error:', err);
-    
-    if (err.response) {
-      if (err.response.status === 401 || err.response.status === 403) {
-        toast.error('Session expired. Please login again.');
-        navigate('/login');
-      } else if (err.response.status === 404) {
-        setError(`Document not found. It may have been deleted.`);
-      } else {
-        setError(err.response.data?.message || `Error: ${err.response.status}`);
-      }
-    } else if (err.request) {
-      setError('Network error: Could not connect to server');
-    } else {
-      setError('An unexpected error occurred');
-    }
-  };
-
   const handlePlaceSignature = async (signatureData) => {
     if (!selectedDoc || selectedDoc.isFinalized) return;
 
     try {
       setIsProcessing(true);
+      const api = axios.create({
+        baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
       const normalizedContent = {
         text: signatureData.content?.text || '',
         fontSize: signatureData.content?.fontSize || 18,
@@ -109,7 +114,8 @@ const SignDocumentPage = () => {
       setSignatures(prev => [...prev, res.data]);
       toast.success('Signature placed successfully!');
     } catch (err) {
-      handleApiError(err);
+      console.error('API Error:', err);
+      toast.error(err.response?.data?.message || 'Failed to place signature');
     } finally {
       setIsProcessing(false);
     }
@@ -124,11 +130,20 @@ const SignDocumentPage = () => {
 
     try {
       setIsProcessing(true);
+      const api = axios.create({
+        baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
       await api.delete(`/api/signatures/${signatureId}`);
       setSignatures(prev => prev.filter(sig => sig._id !== signatureId));
       toast.success('Signature deleted!');
     } catch (err) {
-      handleApiError(err);
+      console.error('API Error:', err);
+      toast.error(err.response?.data?.message || 'Failed to delete signature');
     } finally {
       setIsProcessing(false);
     }
@@ -143,6 +158,14 @@ const SignDocumentPage = () => {
 
     try {
       setIsProcessing(true);
+      const api = axios.create({
+        baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
       const res = await api.post('/api/signatures/finalize', {
         documentId: selectedDoc._id
       });
@@ -155,7 +178,6 @@ const SignDocumentPage = () => {
         isFinalized: true
       }));
 
-      // Trigger download
       const downloadLink = document.createElement('a');
       downloadLink.href = finalizedUrl;
       downloadLink.download = res.data.filename || `signed_${selectedDoc.filename}`;
@@ -165,7 +187,8 @@ const SignDocumentPage = () => {
 
       toast.success('Document finalized and downloaded!');
     } catch (err) {
-      handleApiError(err);
+      console.error('API Error:', err);
+      toast.error(err.response?.data?.message || 'Failed to finalize document');
     } finally {
       setIsProcessing(false);
     }
