@@ -13,8 +13,8 @@ const PublicSign = () => {
   useEffect(() => {
     const fetchDocument = async () => {
       try {
-        const res = await axios.get(`http://localhost:5000/api/signatures/public-doc/${token}`);
-        const fileUrl = `http://localhost:5000${res.data.filepath.replace(/\\/g, '/')}`;
+        const res = await axios.get(`https://docusign-2.onrender.com/api/signatures/public-doc/${token}`);
+        const fileUrl = `https://docusign-2.onrender.com${res.data.filepath.replace(/\\/g, '/')}`;
         setDocUrl(fileUrl);
         setSignatures(res.data.signatures || []);
         setLoading(false);
@@ -30,7 +30,7 @@ const PublicSign = () => {
 
   const handlePlaceSignature = async ({ x, y, page, type, content }) => {
     try {
-      await axios.post(`http://localhost:5000/api/public/${token}`, {
+      await axios.post(`https://docusign-2.onrender.com/api/public/${token}`, {
         x,
         y,
         page,
@@ -46,7 +46,7 @@ const PublicSign = () => {
 
   const handleDeleteSignature = async (signatureId) => {
     try {
-      await axios.delete(`http://localhost:5000/api/signatures/public-delete/${signatureId}`, {
+      await axios.delete(`https://docusign-2.onrender.com/api/signatures/public-delete/${signatureId}`, {
         data: { token }
       });
       setSignatures(prev => prev.filter(sig => sig._id !== signatureId));
@@ -59,9 +59,9 @@ const PublicSign = () => {
 
   const handleFinalize = async () => {
     try {
-      const res = await axios.post(`http://localhost:5000/api/public/finalize/${token}`);
+      const res = await axios.post(`https://docusign-2.onrender.com/api/public/finalize/${token}`);
       alert('✅ Document finalized!');
-      window.open(`http://localhost:5000${res.data.url}`, '_blank');
+      window.open(`https://docusign-2.onrender.com${res.data.url}`, '_blank');
     } catch (err) {
       console.error('❌ Error finalizing:', err);
       alert('Failed to finalize document.');

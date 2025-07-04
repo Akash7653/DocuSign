@@ -25,7 +25,7 @@ const SignDocumentPage = () => {
     }
 
     const api = axios.create({
-      baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000',
+      baseURL: process.env.REACT_APP_API_URL || 'https://docusign-2.onrender.com',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
@@ -67,7 +67,7 @@ const SignDocumentPage = () => {
 
         setSelectedDoc({
           _id: docRes.data._id,
-          url: `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${filepath}`,
+          url: `${process.env.REACT_APP_API_URL || 'https://docusign-2.onrender.com'}${filepath}`,
           filename: docRes.data.filename,
           isFinalized: docRes.data.isFinalized || false
         });
@@ -91,7 +91,7 @@ const SignDocumentPage = () => {
     try {
       setIsProcessing(true);
       const api = axios.create({
-        baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000',
+        baseURL: process.env.REACT_APP_API_URL || 'https://docusign-2.onrender.com',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -131,7 +131,7 @@ const SignDocumentPage = () => {
     try {
       setIsProcessing(true);
       const api = axios.create({
-        baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000',
+        baseURL: process.env.REACT_APP_API_URL || 'https://docusign-2.onrender.com',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -159,7 +159,7 @@ const SignDocumentPage = () => {
     try {
       setIsProcessing(true);
       const api = axios.create({
-        baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000',
+        baseURL: process.env.REACT_APP_API_URL || 'https://docusign-2.onrender.com',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -170,7 +170,7 @@ const SignDocumentPage = () => {
         documentId: selectedDoc._id
       });
 
-      const finalizedUrl = `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${res.data.url}`;
+      const finalizedUrl = `${process.env.REACT_APP_API_URL || 'https://docusign-2.onrender.com'}${res.data.url}`;
       
       setSelectedDoc(prev => ({
         ...prev,

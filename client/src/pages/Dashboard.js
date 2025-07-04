@@ -27,7 +27,7 @@ const Dashboard = () => {
 
     const fetchDocs = async () => {
       try {
-        const res = await axios.get('http://localhost:5000/api/docs/', {
+        const res = await axios.get('https://docusign-2.onrender.com/api/docs/', {
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -36,7 +36,7 @@ const Dashboard = () => {
           ...doc,
           finalizedUrl: doc.finalizedUrl?.startsWith('http')
             ? doc.finalizedUrl
-            : `http://localhost:5000${doc.finalizedUrl}`
+            : `https://docusign-2.onrender.com${doc.finalizedUrl}`
         }));
 
         setDocs(formattedDocs);
@@ -66,12 +66,12 @@ const Dashboard = () => {
     formData.append('pdf', file);
 
     try {
-      await axios.post('http://localhost:5000/api/docs/upload', formData, {
+      await axios.post('https://docusign-2.onrender.com/api/docs/upload', formData, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
       alert('PDF uploaded successfully!');
-      const allDocs = await axios.get('http://localhost:5000/api/docs/', {
+      const allDocs = await axios.get('https://docusign-2.onrender.com/api/docs/', {
         headers: { Authorization: `Bearer ${token}` },
       });
       setDocs(allDocs.data);
@@ -87,7 +87,7 @@ const Dashboard = () => {
       return;
     }
     try {
-      await axios.delete(`http://localhost:5000/api/docs/${docId}`, {
+      await axios.delete(`https://docusign-2.onrender.com/api/docs/${docId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setDocs((prev) => prev.filter((d) => d._id !== docId));
